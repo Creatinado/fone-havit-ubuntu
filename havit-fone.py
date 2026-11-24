@@ -113,7 +113,8 @@ def fone_bluetooth():
                     any(n in (atual["nome"] + " " + atual["descricao"]).lower() for n in BT_NOMES):
                 atual["nome"] = atual["nome"] or atual["descricao"]
                 return atual
-            atual = {"placa": "", "nome": "", "descricao": "", "endereco": "", "perfil": "", "perfis": []}
+            atual = {"placa": "", "nome": "", "descricao": "", "endereco": "", "perfil": "", "perfis": [],
+                     "bateria": None}
             em_perfis = False
             continue
         if atual is None:
@@ -129,6 +130,9 @@ def fone_bluetooth():
             atual["nome"] = valor
         elif s.startswith("device.description = "):
             atual["descricao"] = valor
+        elif s.startswith("bluetooth.battery = "):
+            num = re.sub(r"\D", "", valor)
+            atual["bateria"] = max(0, min(100, int(num))) if num else None
         elif s.startswith("device.string = "):
             atual["endereco"] = valor
         elif s.startswith("Active Profile: "):
@@ -600,7 +604,7 @@ def vigiar():
 #  Painel (GTK3) — tema escuro de software de headset
 # ======================================================================
 
-VERSAO = "2.1.0"
+VERSAO = "2.2.0"
 IMAGEM_FONE = os.path.join(PASTA, "imagens", "havit-headset.png")
 IMAGEM_FONE_SVG = os.path.join(PASTA, "imagens", "havit-headset.svg")
 LARGURA_LATERAL = 244
@@ -708,6 +712,7 @@ button.nav.ativo { background-color: #232323; color: #ffffff;
 .estado { font-size: 11.5px; font-weight: 700; color: #a8a8a8; }
 .pilula { background-color: #111111; border: 1px solid #272727; border-radius: 20px; padding: 7px 16px 7px 12px; }
 .pilula-texto { font-size: 15px; color: #f2f2f2; }
+.bateria-texto { font-size: 18px; color: #f2f2f2; }
 .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 12px; color: #b8b8b8; }
 .chave { font-size: 13.5px; color: #8b8b8b; }
 .valor-info { font-size: 13.5px; color: #e6e6e6; }
@@ -937,6 +942,42 @@ def principal():
                 cr.mask(g)
             else:
                 cr.paint_with_alpha(self.alfa)
+
+    class Bateria(Gtk.DrawingArea):
+        """Ícone de bateria: verde, amarelo abaixo de 25% e vermelho abaixo de 10%."""
+        def __init__(self):
+            super().__init__()
+            self.set_size_request(40, 20)
+            self.set_valign(Gtk.Align.CENTER)
+            self.nivel = None
+            self.connect("draw", self.desenhar)
+
+        def definir(self, nivel):
+            if nivel != self.nivel:
+                self.nivel = nivel
+                self.queue_draw()
+
+        def desenhar(self, w, cr):
+            A = w.get_allocated_height()
+            x, y, larg, alt = 1.5, (A - 17) / 2, 33.0, 17.0
+            cr.set_line_width(1.6)
+            cr.set_source_rgb(0.85, 0.85, 0.85)
+            caixa_arred(cr, x, y, larg, alt, 4)
+            cr.stroke()
+            caixa_arred(cr, x + larg + 1.5, y + 5, 3, alt - 10, 1.2)
+            cr.fill()
+            if self.nivel is None:
+                return
+            if self.nivel <= 10:
+                cr.set_source_rgb(0.95, 0.33, 0.33)
+            elif self.nivel <= 25:
+                cr.set_source_rgb(0.95, 0.72, 0.27)
+            else:
+                cr.set_source_rgb(*VERDE)
+            cheio = (larg - 5) * self.nivel / 100.0
+            if cheio > 0.5:
+                caixa_arred(cr, x + 2.5, y + 2.5, cheio, alt - 5, 2.2)
+                cr.fill()
 
     class Led(Gtk.DrawingArea):
         CORES = {"ok": VERDE, "aviso": (0.95, 0.72, 0.27), "off": (0.33, 0.33, 0.33)}
@@ -1477,8 +1518,19 @@ def principal():
             tx.set_margin_start(22)
             tx.set_margin_end(190)
             tx.pack_start(rotulo("Havit H2002D PRO", "titulo-grande"), False, False, 0)
+            linha_tipo = Gtk.Box(spacing=12)
             self.lbl_tipo = rotulo("Headset Gaming · receptor 2.4G", "subtitulo")
-            tx.pack_start(self.lbl_tipo, False, False, 0)
+            linha_tipo.pack_start(self.lbl_tipo, False, False, 0)
+            self.caixa_bateria = Gtk.Box(spacing=8)
+            self.caixa_bateria.set_margin_start(10)
+            self.icone_bateria = Bateria()
+            self.caixa_bateria.pack_start(self.icone_bateria, False, False, 0)
+            self.lbl_bateria = rotulo("", "bateria-texto")
+            self.caixa_bateria.pack_start(self.lbl_bateria, False, False, 0)
+            self.caixa_bateria.set_tooltip_text("Bateria do fone (o Bluetooth informa; pelo receptor USB não dá)")
+            self.caixa_bateria.set_no_show_all(True)
+            linha_tipo.pack_start(self.caixa_bateria, False, False, 0)
+            tx.pack_start(linha_tipo, False, False, 0)
             self.lbl_rota = rotulo("procurando o fone…", "info", ellipsize=Pango.EllipsizeMode.END)
             self.lbl_rota.set_margin_top(10)
             tx.pack_start(self.lbl_rota, False, False, 0)
@@ -1930,6 +1982,14 @@ def principal():
             ok = bool(self.sink)
             ds = dso = ""
             self.lbl_tipo.set_text("Headset Gaming · " + ("Bluetooth" if self.fone_bt else "receptor 2.4G"))
+            bateria = self.fone_bt["bateria"] if self.fone_bt else None
+            if bateria is None:
+                self.caixa_bateria.hide()
+            else:
+                self.icone_bateria.definir(bateria)
+                self.lbl_bateria.set_text(f"{bateria}%")
+                self.caixa_bateria.set_no_show_all(False)
+                self.caixa_bateria.show_all()
             if ok:
                 self.led.definir("ok")
                 self.estado.set_text("Conectado")
@@ -1982,7 +2042,8 @@ def principal():
             self.sobre["usb"].set_text(f"{USB_ID} · " + ("conectado" if usb else "não encontrado"))
             if self.fone_bt:
                 nome_modo = {"musica": "Música", "chamada": "Chamada"}.get(modo, "sem som")
-                self.sobre["bt"].set_text(f"{self.fone_bt['nome']} · {self.fone_bt['endereco']} · modo {nome_modo}")
+                bat = "" if self.fone_bt["bateria"] is None else f" · bateria {self.fone_bt['bateria']}%"
+                self.sobre["bt"].set_text(f"{self.fone_bt['nome']} · {self.fone_bt['endereco']} · modo {nome_modo}{bat}")
             else:
                 self.sobre["bt"].set_text("não conectado")
             self.sobre["placa"].set_text(self.card or "—")

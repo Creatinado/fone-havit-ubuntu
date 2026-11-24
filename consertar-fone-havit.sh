@@ -264,6 +264,17 @@ bt_nome() {
 
 bt_desligado() { rfkill list bluetooth 2>/dev/null | grep -q "Soft blocked: yes"; }
 
+bt_bateria() {  # "70" (sem %) ou vazio se o fone não informar
+  pactl list cards 2>/dev/null | awk -v c="$CARD" '$0 ~ "Name: "c"$" {f = 1} f && /^\tActive Profile:/ {exit}
+    f && /bluetooth\.battery = / {gsub(/[^0-9]/, ""); print; exit}'
+}
+
+mostrar_bateria() {
+  local b; b=$(bt_bateria)
+  [ -n "$b" ] || return 0
+  if [ "$b" -le 15 ]; then aviso "bateria do fone: ${b}% — carregue logo"; else ok "bateria do fone: ${b}%"; fi
+}
+
 bt_tentar_conectar() {  # fone já pareado, mas desconectado: tenta conectar
   command -v bluetoothctl >/dev/null || return 1
   local linha mac
@@ -469,6 +480,7 @@ consertar() {
 
 consertar_bt() {
   ok "fone conectado pelo Bluetooth: $(bt_nome)"
+  mostrar_bateria
   local p; p=$(perfil_ativo)
   if [ -z "$p" ] || [ "$p" = off ]; then
     pactl set-card-profile "$CARD" "$PERFIL_BT_MUSICA" \
@@ -534,7 +546,7 @@ status() {
     if achar_placa; then via=usb; else erro "PulseAudio sem placa do receptor"; fi
   else
     echo "       receptor USB $USB_ID: não conectado"
-    if achar_bt; then via=bt; ok "fone conectado pelo Bluetooth: $(bt_nome)"
+    if achar_bt; then via=bt; ok "fone conectado pelo Bluetooth: $(bt_nome)"; mostrar_bateria
     elif bt_desligado; then echo "       Bluetooth do computador: desligado"
     else echo "       Bluetooth: fone não conectado"; fi
   fi

@@ -65,6 +65,8 @@ Usar pelo Bluetooth (sem o receptor USB)
      Chamada   microfone ligado (teste de microfone e "só minha voz"), som mono
    O equalizador funciona nos dois modos. O defeito do volume é só do receptor USB; pelo Bluetooth
    ele não acontece.
+4. A bateria do fone aparece no topo do painel e no --status (só pelo Bluetooth: o receptor USB
+   não informa a bateria).
 
 
 Outros comandos

@@ -63,6 +63,9 @@ trocar entre eles:
 O teste de microfone e o "Só minha voz" só funcionam no modo **Chamada**. O equalizador funciona nos dois. Na troca
 de modo, o painel leva junto o que estava tocando e o "Só minha voz".
 
+Pelo Bluetooth o fone também informa a **bateria**, que aparece no topo do painel (verde; amarelo abaixo de 25%;
+vermelho abaixo de 10%). Pelo receptor USB a bateria não é informada.
+
 > Testado com o fone de verdade nos dois jeitos. Pelo Bluetooth ele aparece como "H2002d Pro": no modo Música o
 > som é estéreo (SBC); no modo Chamada (HFP) a saída e o microfone ficam em 16 kHz mono, e a troca leva menos de
 > meio segundo.
