@@ -29,8 +29,9 @@ Instalar em outro computador (Ubuntu 22.04)
 3. Se faltar algum pacote, ele pede a SENHA do computador e instala só o que falta, pela internet.
    Nada que já está instalado é atualizado.
 
-4. Conecte o receptor USB e ligue o fone no modo 2.4G. Se o receptor não estava conectado durante
-   a instalação, rode de novo depois de conectar (pelo atalho "Consertar fone Havit").
+4. Conecte o receptor USB e ligue o fone no modo 2.4G (ou pareie o fone pelo Bluetooth, veja
+   abaixo). Se o fone não estava conectado durante a instalação, rode de novo depois de conectar
+   (pelo atalho "Consertar fone Havit").
 
 5. Pronto. Aparecem dois atalhos no menu de aplicativos e na Área de Trabalho:
      Fone Havit             abre o painel
@@ -44,7 +45,7 @@ O que a instalação faz
   * Pacotes do Ubuntu (só os que faltarem): pulseaudio, pulseaudio-utils, alsa-utils, usbutils,
     libnotify-bin, python3, python3-gi, python3-gi-cairo, python3-cairo, python3-numpy, python3-dbus,
     gir1.2-gtk-3.0, gir1.2-gstreamer-1.0, gir1.2-rsvg-2.0, gstreamer1.0-plugins-base,
-    gstreamer1.0-plugins-good, gcc, libc6-dev, fonts-lato.
+    gstreamer1.0-plugins-good, gcc, libc6-dev, fonts-lato, bluez, pulseaudio-module-bluetooth.
   * Só para o seu usuário (não precisa de senha):
       ~/.local/bin/havit-fone e ~/.local/bin/consertar-fone-havit   (comandos)
       ~/.local/share/applications/                                   (atalhos do menu)
@@ -52,6 +53,18 @@ O que a instalação faz
       ~/.local/lib/ladspa/havit_eq.so e havit_voz.so                 (filtros compilados)
       ~/.local/share/pulseaudio/alsa-mixer/paths/                    (correção do mixer do receptor)
       ~/.config/havit-fone/eq.conf                                   (ajustes do painel, criado ao usar)
+
+
+Usar pelo Bluetooth (sem o receptor USB)
+----------------------------------------
+1. Pareie o fone em Configurações → Bluetooth (o nome dele precisa conter "H2002" ou "Havit").
+2. Rode o "Consertar fone Havit": sem o receptor no USB, ele usa o fone do Bluetooth (e tenta
+   conectar se ele estiver pareado mas desconectado).
+3. No painel aparecem os botões "Bluetooth: Música | Chamada":
+     Música    som estéreo de boa qualidade, SEM microfone
+     Chamada   microfone ligado (teste de microfone e "só minha voz"), som mono
+   O equalizador funciona nos dois modos. O defeito do volume é só do receptor USB; pelo Bluetooth
+   ele não acontece.
 
 
 Outros comandos

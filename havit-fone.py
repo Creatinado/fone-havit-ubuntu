@@ -77,13 +77,125 @@ def curta(tipo):
 
 
 def dispositivos():
-    """(placa, saída do fone, microfone do fone, eq_existe)"""
+    """(placa, saída do fone, microfone do fone, eq_existe). Usa o receptor USB; sem ele, o fone
+    pareado por Bluetooth (no modo Música do Bluetooth não existe microfone: vem None)."""
     sinks = curta("sinks")
+    sources = curta("sources")
     sink = next((c[1] for c in sinks if c[1].startswith("alsa_output.") and CARD_MATCH in c[1]), None)
-    source = next((c[1] for c in curta("sources") if c[1].startswith("alsa_input.") and CARD_MATCH in c[1]), None)
+    source = next((c[1] for c in sources if c[1].startswith("alsa_input.") and CARD_MATCH in c[1]), None)
     card = next((c[1] for c in curta("cards") if CARD_MATCH in c[1]), None)
     eq = any(c[1] == EQ_SINK for c in sinks)
+    if not (card or sink):
+        bt = fone_bluetooth()
+        if bt:
+            base = bt["placa"][len("bluez_card."):]
+            card = bt["placa"]
+            sink = next((c[1] for c in sinks if c[1].startswith(f"bluez_sink.{base}.")), None)
+            source = next((c[1] for c in sources if c[1].startswith(f"bluez_source.{base}.")), None)
     return card, sink, source, eq
+
+
+# ---------------- Bluetooth (fone pareado direto, sem o receptor USB) ----------------
+
+BT_NOMES = ("h2002", "havit")          # trechos do nome Bluetooth do fone (sem diferenciar maiúsculas)
+PERFIL_MUSICA = "a2dp_sink"            # estéreo, sem microfone
+PERFIS_CHAMADA = ("handsfree_head_unit", "headset_head_unit")   # com microfone, som mono
+
+
+def fone_bluetooth():
+    """O fone conectado por Bluetooth: dict com placa, nome, endereco, perfil (ativo) e perfis
+    (disponíveis); ou None."""
+    _, out = pactl("list", "cards")
+    atual, em_perfis = None, False
+    for linha in out.splitlines() + ["Card #fim"]:
+        if linha.startswith("Card #"):
+            if atual and atual["placa"].startswith("bluez_card.") and \
+                    any(n in (atual["nome"] + " " + atual["descricao"]).lower() for n in BT_NOMES):
+                atual["nome"] = atual["nome"] or atual["descricao"]
+                return atual
+            atual = {"placa": "", "nome": "", "descricao": "", "endereco": "", "perfil": "", "perfis": []}
+            em_perfis = False
+            continue
+        if atual is None:
+            continue
+        s = linha.strip()
+        nivel = len(linha) - len(linha.lstrip("\t"))
+        valor = s.split("=", 1)[1].strip().strip('"') if "=" in s else ""
+        if nivel == 1:
+            em_perfis = s == "Profiles:"
+        if s.startswith("Name: "):
+            atual["placa"] = s[6:]
+        elif s.startswith("bluez.alias = "):
+            atual["nome"] = valor
+        elif s.startswith("device.description = "):
+            atual["descricao"] = valor
+        elif s.startswith("device.string = "):
+            atual["endereco"] = valor
+        elif s.startswith("Active Profile: "):
+            atual["perfil"] = s[len("Active Profile: "):]
+        elif em_perfis and nivel == 2:
+            m = re.match(r"([\w-]+): .*available: (\w+)\)$", s)
+            if m and m.group(2) != "no":
+                atual["perfis"].append(m.group(1))
+    return None
+
+
+def modo_bt(perfil):
+    if perfil == PERFIL_MUSICA:
+        return "musica"
+    if perfil in PERFIS_CHAMADA:
+        return "chamada"
+    return "desligado"
+
+
+def bt_trocar_modo(modo):
+    """Troca o Bluetooth para 'musica' (A2DP) ou 'chamada' (HFP/HSP) e leva junto o que estava tocando
+    ou gravando no fone, o equalizador e o 'só minha voz'."""
+    bt = fone_bluetooth()
+    if not bt:
+        return False, "o fone não está conectado pelo Bluetooth"
+    if modo == "chamada":
+        perfil = next((p for p in PERFIS_CHAMADA if p in bt["perfis"]), None)
+    else:
+        perfil = PERFIL_MUSICA if PERFIL_MUSICA in bt["perfis"] else None
+    nome_modo = "Chamada" if modo == "chamada" else "Música"
+    if not perfil:
+        return False, f"o fone não oferece o modo {nome_modo} pelo Bluetooth"
+    if bt["perfil"] == perfil:
+        return True, f"Bluetooth já está no modo {nome_modo}"
+    with Trava():
+        _, sink_antes, source_antes, _ = dispositivos()
+        idx = {c[0]: c[1] for c in curta("sinks")}
+        sons = [c[0] for c in curta("sink-inputs")
+                if len(c) > 2 and c[2] != "-" and idx.get(c[1]) in (sink_antes, EQ_SINK)]
+        gravs = [g["id"] for g in gravacoes()
+                 if g["cliente"] != "-" and g["fonte"] in (source_antes, VOZ_FONTE)
+                 and not any(g["app"].startswith(n) for n in NOSSOS_APPS)]
+        rc, _ = pactl("set-card-profile", bt["placa"], perfil)
+        if rc != 0:
+            return False, "o PulseAudio recusou trocar o modo do Bluetooth"
+        # espera a saída nova aparecer e o equalizador antigo (preso à saída velha) sumir
+        for _ in range(40):
+            _, sink, source, _ = dispositivos()
+            m = modulo("module-ladspa-sink", f"sink_name={EQ_SINK}")
+            eq_velho = bool(m and sink_antes and any(c[0] == m and f"sink_master={sink_antes}" in c[2]
+                                                       for c in curta("modules")))
+            if sink and sink != sink_antes and (source or modo == "musica") and not eq_velho:
+                break
+            time.sleep(0.15)
+    reaplicar()   # religa equalizador e "só minha voz" na saída/entrada nova
+    _, sink, source, eq = dispositivos()
+    alvo = EQ_SINK if eq else sink
+    if alvo:
+        pactl("set-default-sink", alvo)
+        for i in sons:
+            pactl("move-sink-input", i, alvo)
+    entrada = VOZ_FONTE if (source and voz_saudavel(source)) else source
+    if entrada:
+        pactl("set-default-source", entrada)
+        for i in gravs:
+            pactl("move-source-output", i, entrada)
+    return True, f"Bluetooth no modo {nome_modo}"
 
 
 def receptor_usb():
@@ -355,8 +467,10 @@ def _desmontar_voz():
 
 def voz_ligar(limiar):
     with Trava():
-        _, _, source, _ = dispositivos()
+        card, _, source, _ = dispositivos()
         if not source:
+            if card and card.startswith("bluez_card."):
+                return False, "no Bluetooth o microfone só funciona no modo Chamada"
             return False, "microfone do fone não encontrado"
         if voz_saudavel(source):
             if not ladspa_dbus(VOZ_FILTRO, (limiar, VOZ_REDUCAO)):
@@ -486,7 +600,7 @@ def vigiar():
 #  Painel (GTK3) — tema escuro de software de headset
 # ======================================================================
 
-VERSAO = "2.0.0"
+VERSAO = "2.1.0"
 IMAGEM_FONE = os.path.join(PASTA, "imagens", "havit-headset.png")
 IMAGEM_FONE_SVG = os.path.join(PASTA, "imagens", "havit-headset.svg")
 LARGURA_LATERAL = 244
@@ -628,6 +742,8 @@ button.redondo:hover { background-color: #252525; border-color: #3a3a3a; }
 button.preset { background-color: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 12px; padding: 9px 8px; color: #bdbdbd; }
 button.preset label { font-size: 15px; }
 button.preset:hover { background-color: #222222; border-color: #383838; color: #f0f0f0; }
+button.segmento { padding: 5px 14px; border-radius: 10px; }
+button.segmento label { font-size: 13px; }
 button.preset.ativo { background-color: #101010; border-color: #ededed; color: #ffffff;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3); }
 button.tile { background-color: #1b1b1b; border: 1px solid #2a2a2a; border-radius: 14px; padding: 12px 6px 10px;
@@ -1037,7 +1153,12 @@ def principal():
 
             # controles que aparecem em mais de uma página ficam ligados entre si
             self.rotulos = {}                       # botão → texto dele
-            self.dep_conexao = []                   # só funcionam com o fone conectado
+            self.dep_conexao = []                   # só funcionam com a saída do fone presente
+            self.dep_mic = []                       # só funcionam com o microfone do fone presente
+            self.fone_bt = None                     # fone pelo Bluetooth (dict de fone_bluetooth) ou None
+            self.bts_bt = []                        # botões Música/Chamada
+            self.seletores_bt = []                  # caixas que só aparecem no Bluetooth
+            self.aviso_mic_bt = False
             self.navs = {}
             self.vals = {"sink": [], "source": []}  # números de volume/ganho
             self.mudos = {"sink": [], "source": []}
@@ -1225,6 +1346,21 @@ def principal():
             self.bts_calibrar.append(b)
             return b
 
+        def seletor_bt(self):
+            """Botões Música / Chamada do Bluetooth (só aparecem quando o fone está no Bluetooth)."""
+            cx = Gtk.Box(spacing=8)
+            cx.pack_start(rotulo("Bluetooth:", "dica"), False, False, 0)
+            for modo, texto, dica in (("musica", "Música", "Som estéreo de alta qualidade; o microfone fica desligado"),
+                                      ("chamada", "Chamada", "Liga o microfone; o som fica mono e mais simples")):
+                b = classe(Gtk.Button(label=texto), "preset", "segmento")
+                b.set_tooltip_text(dica)
+                b.connect("clicked", lambda _b, m=modo: self.trocar_modo_bt(m))
+                cx.pack_start(b, False, False, 0)
+                self.bts_bt.append((b, modo))
+            cx.set_no_show_all(True)
+            self.seletores_bt.append(cx)
+            return cx
+
         def titulo_pagina(self, titulo, sub):
             cx = Gtk.Box(orientation=V, spacing=4)
             cx.pack_start(rotulo(titulo, "titulo-pagina"), False, False, 0)
@@ -1341,10 +1477,14 @@ def principal():
             tx.set_margin_start(22)
             tx.set_margin_end(190)
             tx.pack_start(rotulo("Havit H2002D PRO", "titulo-grande"), False, False, 0)
-            tx.pack_start(rotulo("Headset Gaming · receptor 2.4G", "subtitulo"), False, False, 0)
+            self.lbl_tipo = rotulo("Headset Gaming · receptor 2.4G", "subtitulo")
+            tx.pack_start(self.lbl_tipo, False, False, 0)
             self.lbl_rota = rotulo("procurando o fone…", "info", ellipsize=Pango.EllipsizeMode.END)
             self.lbl_rota.set_margin_top(10)
             tx.pack_start(self.lbl_rota, False, False, 0)
+            sel = self.seletor_bt()
+            sel.set_margin_top(4)
+            tx.pack_start(sel, False, False, 0)
             c.pack_start(tx, True, True, 0)
             ov.add(c)
             pil = classe(Gtk.Box(spacing=8), "pilula")
@@ -1425,7 +1565,7 @@ def principal():
             self.bts_ouvir.append(bo)
             bts.pack_start(bo, False, False, 0)
             c.pack_start(bts, False, False, 0)
-            self.dep_conexao.append(c)
+            self.dep_mic.append(c)
             return c
 
         def coluna_voz(self):
@@ -1460,7 +1600,7 @@ def principal():
             c2.pack_start(tx, True, True, 0)
             c2.pack_end(self.botao_calibrar("pequeno"), False, False, 0)
             col.pack_start(c2, True, True, 0)
-            self.dep_conexao += [c1, c2]
+            self.dep_mic += [c1, c2]
             return col
 
         def card_ferramentas_resumo(self):
@@ -1523,6 +1663,7 @@ def principal():
             pg = Gtk.Box(orientation=V, spacing=20)
             pg.pack_start(self.titulo_pagina("Áudio", "Volume do fone, ganho do microfone e o filtro “só minha voz”."),
                           False, False, 0)
+            pg.pack_start(self.seletor_bt(), False, False, 0)
             cols = Gtk.Box(spacing=20, homogeneous=True)
             esq = Gtk.Box(orientation=V, spacing=20)
             esq.pack_start(self.card_fone_completo(), False, False, 0)
@@ -1600,7 +1741,7 @@ def principal():
             res.set_max_width_chars(48)
             self.res_mic.append(res)
             c.pack_start(res, False, False, 0)
-            self.dep_conexao.append(c)
+            self.dep_mic.append(c)
             return c
 
         def card_voz_completo(self):
@@ -1650,7 +1791,7 @@ def principal():
             self.res_voz.append(res)
             bts.pack_start(res, True, True, 0)
             c.pack_start(bts, False, False, 0)
-            self.dep_conexao.append(c)
+            self.dep_mic.append(c)
             return c
 
         # ---------------- página Equalizador ----------------
@@ -1752,7 +1893,7 @@ def principal():
             grade = Gtk.Grid(column_spacing=22, row_spacing=8)
             grade.set_margin_top(18)
             self.sobre = {}
-            linhas = (("usb", "Receptor USB"), ("placa", "Placa"), ("saida", "Saída do fone"),
+            linhas = (("usb", "Receptor USB"), ("bt", "Bluetooth"), ("placa", "Placa"), ("saida", "Saída do fone"),
                       ("entrada", "Microfone"), ("padrao", "Padrões do sistema"))
             for i, (k, nome) in enumerate(linhas):
                 grade.attach(rotulo(nome, "chave"), 0, i, 1, 1)
@@ -1784,18 +1925,29 @@ def principal():
             usb = receptor_usb()
             self.card, self.sink, self.source, self.eq_existe = dispositivos()
             self.voz_existe = bool(self.source) and voz_saudavel(self.source)
-            ok = bool(self.sink and self.source)
+            self.fone_bt = fone_bluetooth() if (self.card or "").startswith("bluez_card.") else None
+            modo = modo_bt(self.fone_bt["perfil"]) if self.fone_bt else None
+            ok = bool(self.sink)
             ds = dso = ""
+            self.lbl_tipo.set_text("Headset Gaming · " + ("Bluetooth" if self.fone_bt else "receptor 2.4G"))
             if ok:
                 self.led.definir("ok")
                 self.estado.set_text("Conectado")
                 _, ds = pactl("get-default-sink")
                 _, dso = pactl("get-default-source")
                 ds, dso = ds.strip(), dso.strip()
-                saida = "fone com equalizador" if ds == EQ_SINK else ("fone" if ds == self.sink else ds or "?")
-                entrada = ("só minha voz" if dso == VOZ_FONTE else
-                           ("microfone do fone" if dso == self.source else dso or "?"))
+                saida = ("fone com equalizador" if ds == EQ_SINK else
+                         ("fone" if ds == self.sink else "outra saída, não o fone"))
+                if not self.source and modo == "musica":
+                    entrada = "sem microfone no modo Música"
+                else:
+                    entrada = ("só minha voz" if dso == VOZ_FONTE else
+                               ("microfone do fone" if dso == self.source else "outra entrada, não o fone"))
                 self.lbl_rota.set_text(f"Saída: {saida}   ·   Entrada: {entrada}")
+            elif self.fone_bt:
+                self.led.definir("aviso")
+                self.estado.set_text("Bluetooth sem som")
+                self.lbl_rota.set_text("O fone está no Bluetooth, mas sem saída de som — escolha Música abaixo.")
             elif usb:
                 self.led.definir("aviso")
                 self.estado.set_text("Receptor sem som")
@@ -1803,10 +1955,13 @@ def principal():
             else:
                 self.led.definir("off")
                 self.estado.set_text("Desconectado")
-                self.lbl_rota.set_text("Conecte o receptor USB e ligue o fone.")
+                self.lbl_rota.set_text("Conecte o receptor USB (ou o Bluetooth) e ligue o fone.")
             self.lbl_rota.set_tooltip_text(self.lbl_rota.get_text())
             for w in self.dep_conexao:
                 w.set_sensitive(ok)
+            for w in self.dep_mic:
+                w.set_sensitive(bool(self.source))
+            self.mostrar_bt(modo)
             self.sync = True
             try:
                 agora = time.monotonic()
@@ -1825,6 +1980,11 @@ def principal():
             finally:
                 self.sync = False
             self.sobre["usb"].set_text(f"{USB_ID} · " + ("conectado" if usb else "não encontrado"))
+            if self.fone_bt:
+                nome_modo = {"musica": "Música", "chamada": "Chamada"}.get(modo, "sem som")
+                self.sobre["bt"].set_text(f"{self.fone_bt['nome']} · {self.fone_bt['endereco']} · modo {nome_modo}")
+            else:
+                self.sobre["bt"].set_text("não conectado")
             self.sobre["placa"].set_text(self.card or "—")
             self.sobre["saida"].set_text(self.sink or "—")
             self.sobre["entrada"].set_text(self.source or "—")
@@ -1834,6 +1994,42 @@ def principal():
             if not self.captura:
                 self.ajustar_medidor()
             return False
+
+        def mostrar_bt(self, modo):
+            """Seletor Música/Chamada e o aviso de microfone quando o fone está no Bluetooth."""
+            for cx in self.seletores_bt:
+                if self.fone_bt:
+                    cx.set_no_show_all(False)
+                    cx.show_all()
+                else:
+                    cx.hide()
+            for b, m in self.bts_bt:
+                ctx = b.get_style_context()
+                (ctx.add_class if m == modo else ctx.remove_class)("ativo")
+                b.set_sensitive(not self.ocupado)
+            sem_mic_bt = bool(self.fone_bt) and not self.source
+            if sem_mic_bt and not self.aviso_mic_bt:
+                self.aviso_mic_bt = True
+                self.msg_mic("<b>No Bluetooth, o microfone só funciona no modo Chamada.</b>\n"
+                             "Troque para Chamada no topo da tela Principal ou da página Áudio.")
+            elif not sem_mic_bt and self.aviso_mic_bt:
+                self.aviso_mic_bt = False
+                self.pilha_mic.set_visible_child_name("medidor")
+                for l in self.res_mic:
+                    l.set_text("Fale e veja a barra acender. O teste grava 5 s do jeito que os outros vão te ouvir.")
+
+        def trocar_modo_bt(self, modo):
+            if self.ocupado or not self.fone_bt:
+                return
+            self.ocupado = True
+            for b, _m in self.bts_bt:
+                b.set_sensitive(False)
+            self.log("Trocando o Bluetooth para o modo " + ("Chamada…" if modo == "chamada" else "Música…"))
+
+            def fim(r):
+                self.ocupado = False
+                self.depois_modulo(r)
+            self.em_fundo(lambda: bt_trocar_modo(modo), fim)
 
         def marcar_atualizacao(self):
             if not self.atualizacao_marcada:
@@ -2026,10 +2222,14 @@ def principal():
             self.medidor_voz.queue_draw()
             if lig and self.voz_existe:
                 estado, sub = "LIGADO", "Ligado · a conversa da sala não passa"
+            elif lig and not self.source and self.fone_bt:
+                estado, sub = "AGUARDANDO MIC", "Precisa do microfone: no Bluetooth, use o modo Chamada"
             elif lig and not self.source:
                 estado, sub = "AGUARDANDO FONE", "Aguardando o fone"
             elif lig:
                 estado, sub = "LIGANDO…", "Ligando…"
+            elif self.fone_bt and not self.source:
+                estado, sub = "DESLIGADO", "Precisa do microfone: no Bluetooth, use o modo Chamada"
             else:
                 estado, sub = "DESLIGADO", "Corta o som da sala quando você não fala"
                 for led in self.leds_voz:
@@ -2152,6 +2352,8 @@ def principal():
                 return
             bt.set_sensitive(False)
             self.log(f"Tocando a voz só no lado {lado.upper()}…")
+            if self.fone_bt and modo_bt(self.fone_bt["perfil"]) == "chamada":
+                self.log("  (Bluetooth no modo Chamada: o som é mono, os dois lados tocam juntos)")
             alvo = EQ_SINK if self.eq_existe else self.sink
             self.em_fundo(lambda: subprocess.run(["paplay", f"--device={alvo}", os.path.join(SONS, arquivo)], env=ENV),
                           lambda r: bt.set_sensitive(True))

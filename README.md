@@ -1,6 +1,7 @@
 # Fone Havit H2002D Pro no Ubuntu
 
-Conserto e painel para usar o headset sem fio **Havit H2002D Pro** (receptor USB 2.4G) no **Ubuntu 22.04**.
+Conserto e painel para usar o headset sem fio **Havit H2002D Pro** no **Ubuntu 22.04**, pelo receptor USB 2.4G
+ou pareado direto no **Bluetooth**.
 
 ![Painel Fone Havit](docs/painel-principal.png)
 
@@ -43,6 +44,26 @@ receptor.
 
 Ele também acerta o perfil (estéreo analógico + microfone), escolhe o fone como saída e entrada padrão e manda para o
 fone os programas que já estavam tocando.
+
+## E pelo Bluetooth?
+
+O defeito do volume é do **receptor USB**. Pareado direto no Bluetooth do computador, o fone não passa por ele, então
+esse problema não acontece. O painel e o conserto também funcionam por Bluetooth: sem o receptor no USB, eles usam o
+fone pareado (o nome Bluetooth precisa conter "H2002" ou "Havit"). Se ele estiver pareado mas desconectado, o
+conserto tenta conectar sozinho.
+
+O Bluetooth tem uma limitação que não depende do projeto: ele tem **dois modos**, e o painel mostra os botões para
+trocar entre eles:
+
+| Modo | Som | Microfone |
+|---|---|---|
+| **Música** (A2DP) | estéreo, boa qualidade | desligado |
+| **Chamada** (HFP/HSP) | mono, mais simples | ligado |
+
+O teste de microfone e o "Só minha voz" só funcionam no modo **Chamada**. O equalizador funciona nos dois. Na troca
+de modo, o painel leva junto o que estava tocando e o "Só minha voz".
+
+> O modo Bluetooth foi testado com o PulseAudio simulado. O conserto do receptor USB foi testado com o fone de verdade.
 
 ## O que vem no projeto
 
@@ -93,6 +114,8 @@ Esse comando remove os ajustes do mixer. Para valer, tire e ponha o receptor USB
 
 - Testado com o receptor USB `040b:0897`, que aparece como *XiiSound Technology Corporation H2002d Pro*
   (para conferir: `lsusb | grep 040b:0897`).
+- Bluetooth: o fone precisa estar pareado em **Configurações → Bluetooth**, com um nome que contenha "H2002" ou
+  "Havit".
 - Feito para Ubuntu 22.04 com PulseAudio. Em sistemas com PipeWire o script avisa que pode não funcionar igual.
 
 ---

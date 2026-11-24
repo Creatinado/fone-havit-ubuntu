@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# consertar-fone-havit — instala e corrige o fone Havit H2002d Pro (receptor 2.4G USB 040b:0897)
-# no Ubuntu 22.04 com PulseAudio.
+# consertar-fone-havit — instala e corrige o fone Havit H2002d Pro no Ubuntu 22.04 com PulseAudio,
+# pelo receptor 2.4G USB (040b:0897) ou pareado direto no Bluetooth.
 #
 # É o instalador e o conserto ao mesmo tempo. Num computador novo basta copiar a pasta e rodar
 # este script (veja LEIA-ME.txt). A cada execução ele:
@@ -8,7 +8,8 @@
 #      um pacote que já existe)
 #   2. instala o painel "Fone Havit" e os atalhos (menu e Área de Trabalho) para este usuário
 #   3. corrige o som: ajustes do mixer em ~/.local/share/pulseaudio/alsa-mixer/paths/, perfil,
-#      saída/entrada padrão e volumes do receptor
+#      saída/entrada padrão e volumes do receptor. Sem o receptor, usa o fone pelo Bluetooth (tenta
+#      conectar se ele já estiver pareado). No Bluetooth o microfone só existe no modo Chamada.
 #
 # Uso:
 #   consertar-fone-havit.sh            instala o que faltar, corrige e oferece testar som e microfone
@@ -60,7 +61,7 @@ fi
 PACOTES="pulseaudio pulseaudio-utils alsa-utils usbutils libnotify-bin
   python3 python3-gi python3-gi-cairo python3-cairo python3-numpy python3-dbus
   gir1.2-gtk-3.0 gir1.2-gstreamer-1.0 gir1.2-rsvg-2.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
-  gcc libc6-dev fonts-lato"
+  gcc libc6-dev fonts-lato bluez pulseaudio-module-bluetooth"
 
 pacotes_faltando() {
   local p falta=""
@@ -204,7 +205,7 @@ abrir_no_terminal() {
 
 # ---------- localizar o fone ----------
 
-CARD=""; IDX=""; BASE=""; SINK=""; SOURCE=""
+CARD=""; IDX=""; BASE=""; SINK=""; SOURCE=""; PREF_SAIDA=""; PREF_ENTRADA=""
 
 receptor_conectado() { lsusb -d "$USB_ID" >/dev/null 2>&1; }
 
@@ -223,6 +224,7 @@ achar_placa() {
   CARD=$(pactl list short cards 2>/dev/null | awk -v m="$CARD_MATCH" '$2 ~ m {print $2; exit}')
   [ -n "$CARD" ] || return 1
   BASE=${CARD#alsa_card.}
+  PREF_SAIDA="alsa_output.$BASE."; PREF_ENTRADA="alsa_input.$BASE."
   IDX=""
   local f
   for f in /proc/asound/card*/usbid; do
@@ -235,8 +237,42 @@ achar_placa() {
 perfil_ativo() { pactl list cards 2>/dev/null | awk -v c="$CARD" '$0 ~ "Name: "c"$" {f=1} f && /Active Profile:/ {sub(/.*Active Profile: /,""); print; exit}'; }
 
 achar_sink_source() {
-  SINK=$(pactl list short sinks 2>/dev/null | awk -v b="$BASE" 'index($2, "alsa_output."b".")==1 {print $2; exit}')
-  SOURCE=$(pactl list short sources 2>/dev/null | awk -v b="$BASE" 'index($2, "alsa_input."b".")==1 {print $2; exit}')
+  SINK=$(pactl list short sinks 2>/dev/null | awk -v p="$PREF_SAIDA" 'index($2, p)==1 {print $2; exit}')
+  SOURCE=$(pactl list short sources 2>/dev/null | awk -v p="$PREF_ENTRADA" 'index($2, p)==1 && $2 !~ /\.monitor$/ {print $2; exit}')
+}
+
+# ---------- Bluetooth (fone pareado direto, sem o receptor USB) ----------
+
+BT_NOMES_RE="h2002|havit"   # trechos do nome Bluetooth do fone (sem diferenciar maiúsculas)
+PERFIL_BT_MUSICA="a2dp_sink"
+
+achar_bt() {  # placa Bluetooth do fone, se ele estiver conectado
+  CARD=$(pactl list cards 2>/dev/null | awk -v re="$BT_NOMES_RE" '
+    /^Card #/ { if (nome ~ /^bluez_card\./ && casou) { print nome; achou = 1; exit } nome = ""; casou = 0; next }
+    /^\tName: / { nome = $2 }
+    /bluez\.alias = |device\.description = / { if (tolower($0) ~ re) casou = 1 }
+    END { if (!achou && nome ~ /^bluez_card\./ && casou) print nome }')
+  [ -n "$CARD" ] || return 1
+  BASE=${CARD#bluez_card.}; IDX=""
+  PREF_SAIDA="bluez_sink.$BASE."; PREF_ENTRADA="bluez_source.$BASE."
+  return 0
+}
+
+bt_nome() {
+  pactl list cards 2>/dev/null | awk -v c="$CARD" '$0 ~ "Name: "c"$" {f = 1} f && /bluez\.alias = / {sub(/.*= "/, ""); sub(/"$/, ""); print; exit}'
+}
+
+bt_desligado() { rfkill list bluetooth 2>/dev/null | grep -q "Soft blocked: yes"; }
+
+bt_tentar_conectar() {  # fone já pareado, mas desconectado: tenta conectar
+  command -v bluetoothctl >/dev/null || return 1
+  local linha mac
+  linha=$(bluetoothctl paired-devices 2>/dev/null | awk -v re="$BT_NOMES_RE" 'tolower($0) ~ re {print; exit}')
+  mac=$(awk '{print $2}' <<<"$linha")
+  [ -n "$mac" ] || return 1
+  echo "       tentando conectar o fone pelo Bluetooth: ${linha#Device }"
+  timeout 20 bluetoothctl connect "$mac" >/dev/null 2>&1
+  esperar 10 achar_bt
 }
 
 # ---------- arquivos de ajuste do mixer (persistem entre reinícios e reconexões) ----------
@@ -363,6 +399,7 @@ mover_fluxos() {
   # gravações que usam microfone (não as que gravam o som da tela/monitor) → microfone do fone
   # (ou → "só minha voz", se ligado). Ficam onde estão: fluxos internos de módulos (cliente "-",
   # ex.: a ligação do "só minha voz") e o medidor do painel Fone Havit.
+  [ -n "${ALVO_SRC:-$SOURCE}" ] || return 0
   local ignorar
   monitores=" $(pactl list short sources 2>/dev/null | awk '$2 ~ /\.monitor$/ {printf "%s ", $1}')"
   ignorar=" $(pactl list source-outputs 2>/dev/null | awk '/^Source Output #/ {id=substr($3,2)} /application.name = "Fone Havit/ {printf "%s ", id}')"
@@ -381,9 +418,19 @@ consertar() {
   titulo "Corrigindo o fone Havit H2002d Pro"
 
   if ! receptor_conectado; then
-    erro "o receptor USB do fone ($USB_ID) não está conectado."
-    echo "       Coloque o receptor numa porta USB, ligue o fone (modo 2.4G) e rode de novo."
-    avisar_desktop "Receptor USB do fone não encontrado. Conecte e rode de novo."
+    if achar_bt || { ! bt_desligado && bt_tentar_conectar; }; then
+      consertar_bt
+      return $?
+    fi
+    erro "o fone não está conectado: nem o receptor USB ($USB_ID) nem o Bluetooth."
+    echo "       Coloque o receptor numa porta USB e ligue o fone no modo 2.4G,"
+    if bt_desligado; then
+      echo "       ou ligue o Bluetooth do computador e conecte o fone por ele."
+    else
+      echo "       ou conecte o fone pelo Bluetooth (Configurações → Bluetooth)."
+    fi
+    echo "       Depois rode de novo."
+    avisar_desktop "Fone não encontrado (nem receptor USB nem Bluetooth). Conecte e rode de novo."
     return 1
   fi
   ok "receptor USB conectado"
@@ -411,7 +458,34 @@ consertar() {
     || { erro "a saída/entrada do fone não apareceu no PulseAudio"; return 1; }
 
   ajustar_mixer_hw
+  finalizar
 
+  if [ "$overrides_novos" = 1 ]; then
+    aviso "ajustes novos do mixer valem por completo a partir da próxima reconexão do receptor"
+    echo "       (o volume já foi corrigido agora; não precisa fazer nada)"
+  fi
+  pronto
+}
+
+consertar_bt() {
+  ok "fone conectado pelo Bluetooth: $(bt_nome)"
+  local p; p=$(perfil_ativo)
+  if [ -z "$p" ] || [ "$p" = off ]; then
+    pactl set-card-profile "$CARD" "$PERFIL_BT_MUSICA" \
+      && ok "som do Bluetooth ligado no modo Música" || erro "não consegui ligar o som do Bluetooth"
+    p=$(perfil_ativo)
+  fi
+  case "$p" in
+    a2dp*)       ok "modo Música (estéreo). O microfone só funciona no modo Chamada — troque no painel Fone Havit" ;;
+    *head_unit*) ok "modo Chamada: microfone ligado (o som fica mono)" ;;
+  esac
+  esperar 5 eval 'achar_sink_source; [ -n "$SINK" ]' \
+    || { erro "a saída do fone não apareceu no PulseAudio"; return 1; }
+  finalizar
+  pronto
+}
+
+finalizar() {  # saída/entrada padrão, mudo, balanço, programas abertos e painel
   ALVO="$SINK"
   if eq_ligado; then
     ALVO="$EQ_SINK"
@@ -420,29 +494,33 @@ consertar() {
     pactl set-default-sink "$SINK" && ok "fone definido como saída de som padrão"
   fi
   ALVO_SRC="$SOURCE"
-  if voz_ligado; then
+  if [ -z "$SOURCE" ]; then
+    :
+  elif voz_ligado; then
     ALVO_SRC="$VOZ_FONTE"
     pactl set-default-source "$ALVO_SRC" && ok "entrada padrão: microfone do fone com 'só minha voz'"
   else
     pactl set-default-source "$SOURCE" && ok "microfone do fone definido como entrada padrão"
   fi
   pactl set-sink-mute "$SINK" 0
-  pactl set-source-mute "$SOURCE" 0
-  ok "saída e microfone sem mudo"
+  if [ -n "$SOURCE" ]; then
+    pactl set-source-mute "$SOURCE" 0
+    ok "saída e microfone sem mudo"
+  else
+    ok "saída sem mudo"
+  fi
   equilibrar
   mover_fluxos
-
-  if [ "$overrides_novos" = 1 ]; then
-    aviso "ajustes novos do mixer valem por completo a partir da próxima reconexão do receptor"
-    echo "       (o volume já foi corrigido agora; não precisa fazer nada)"
-  fi
   # painel Fone Havit: religa equalizador e "só minha voz" se estiverem ligados nas configurações
   if [ -f "$PASTA/havit-fone.py" ]; then
     python3 "$PASTA/havit-fone.py" --reaplicar 2>/dev/null
   fi
+}
+
+pronto() {
   echo
   echo "  ${VERDE}${NEGRITO}Pronto.${FIM} Se o som de algum programa não mudou para o fone, pause e dê play de novo nele."
-  avisar_desktop "Fone corrigido: saída e microfone no H2002d Pro."
+  avisar_desktop "Fone corrigido: som no H2002d Pro."
   return 0
 }
 
@@ -450,11 +528,26 @@ consertar() {
 
 status() {
   titulo "Estado do fone Havit H2002d Pro"
-  if receptor_conectado; then ok "receptor USB $USB_ID conectado"; else erro "receptor USB $USB_ID NÃO conectado"; fi
-  if ! achar_placa; then erro "PulseAudio sem placa do fone"; return 1; fi
+  local via=""
+  if receptor_conectado; then
+    ok "receptor USB $USB_ID conectado"
+    if achar_placa; then via=usb; else erro "PulseAudio sem placa do receptor"; fi
+  else
+    echo "       receptor USB $USB_ID: não conectado"
+    if achar_bt; then via=bt; ok "fone conectado pelo Bluetooth: $(bt_nome)"
+    elif bt_desligado; then echo "       Bluetooth do computador: desligado"
+    else echo "       Bluetooth: fone não conectado"; fi
+  fi
+  [ -n "$via" ] || { erro "fone não encontrado (nem receptor USB nem Bluetooth)"; return 1; }
   achar_sink_source
   local p; p=$(perfil_ativo)
-  if [ "$p" = "$PERFIL" ]; then ok "perfil: $p"; else aviso "perfil: $p   (o certo é $PERFIL)"; fi
+  if [ "$via" = bt ]; then
+    case "$p" in
+      a2dp*)       ok "modo Bluetooth: Música (estéreo, sem microfone)" ;;
+      *head_unit*) ok "modo Bluetooth: Chamada (microfone ligado, som mono)" ;;
+      *)           aviso "modo Bluetooth: ${p:-?} (sem som — rode a correção)" ;;
+    esac
+  elif [ "$p" = "$PERFIL" ]; then ok "perfil: $p"; else aviso "perfil: $p   (o certo é $PERFIL)"; fi
   if [ -n "$IDX" ]; then
     local pcm pcm1
     pcm=$(amixer -c "$IDX" cget name='PCM Playback Volume' 2>/dev/null | awk -F= '/: values=/ {print $2}')
@@ -480,7 +573,8 @@ status() {
   else
     echo "       equalizador: desligado"
   fi
-  if [ "$dso" = "$SOURCE" ]; then ok "entrada padrão: microfone do fone"
+  if [ -z "$SOURCE" ]; then echo "       entrada: sem microfone (Bluetooth no modo Música)"
+  elif [ "$dso" = "$SOURCE" ]; then ok "entrada padrão: microfone do fone"
   elif [ "$dso" = "$VOZ_FONTE" ] && voz_ligado; then ok "entrada padrão: microfone do fone com 'só minha voz'"
   else aviso "entrada padrão: $dso"; fi
   if voz_ligado; then ok "só minha voz: ligado"
@@ -490,11 +584,13 @@ status() {
   [ -n "$SINK" ] && echo "       volume do fone: $(volumes_sink | sed 's/ /% \/ /;s/$/%/') (esq / dir), mudo: $(pactl get-sink-mute "$SINK" | awk '{print $2}')"
   [ -n "$SOURCE" ] && echo "       volume do microfone: $(pactl get-source-volume "$SOURCE" | grep -o '[0-9]*%' | head -1), mudo: $(pactl get-source-mute "$SOURCE" | awk '{print $2}')"
   local f
-  for f in $OVR_ARQUIVOS; do
-    if grep -q "consertar-fone-havit" "$OVR_DIR/$f" 2>/dev/null; then ok "ajuste do mixer instalado: $f"; else aviso "ajuste do mixer ausente: $f"; fi
-  done
-  if rfkill list bluetooth 2>/dev/null | grep -q "Soft blocked: yes"; then
-    echo "       Bluetooth do notebook: desligado (não afeta o modo 2.4G com receptor USB)"
+  if [ "$via" = usb ]; then
+    for f in $OVR_ARQUIVOS; do
+      if grep -q "consertar-fone-havit" "$OVR_DIR/$f" 2>/dev/null; then ok "ajuste do mixer instalado: $f"; else aviso "ajuste do mixer ausente: $f"; fi
+    done
+    if bt_desligado; then
+      echo "       Bluetooth do computador: desligado (não afeta o modo 2.4G com receptor USB)"
+    fi
   fi
 }
 
@@ -506,15 +602,18 @@ perguntar() {  # $1 = pergunta; retorna 0 se "s"
 }
 
 preparar_teste() {
-  receptor_conectado && achar_placa || { erro "fone não encontrado — rode a correção primeiro"; return 1; }
+  { receptor_conectado && achar_placa; } || achar_bt || { erro "fone não encontrado — rode a correção primeiro"; return 1; }
   achar_sink_source
-  [ -n "$SINK" ] && [ -n "$SOURCE" ] || { erro "saída/entrada do fone não existem — rode a correção primeiro"; return 1; }
+  [ -n "$SINK" ] || { erro "a saída do fone não existe — rode a correção primeiro"; return 1; }
 }
 
 testar_som() {
   preparar_teste || return 1
   titulo "Teste de som (esquerdo e direito)"
   echo "  Coloque o fone. Vai tocar uma voz só no lado ESQUERDO e depois só no DIREITO."
+  case "$(perfil_ativo)" in
+    *head_unit*) aviso "Bluetooth no modo Chamada: o som é mono, os dois lados tocam juntos" ;;
+  esac
   sleep 1
   echo "  → tocando no ESQUERDO..."; paplay --device="$SINK" "$SONS/Front_Left.wav"
   sleep 0.5
@@ -533,6 +632,10 @@ testar_som() {
 
 testar_mic() {
   preparar_teste || return 1
+  if [ -z "$SOURCE" ]; then
+    erro "sem microfone: no Bluetooth ele só funciona no modo Chamada (troque no painel Fone Havit)"
+    return 1
+  fi
   titulo "Teste do microfone"
   local tmp; tmp=$(mktemp --suffix=.wav)
   echo "  Quando aparecer FALE AGORA, fale normalmente por 5 segundos (ex.: conte de 1 a 10)."
