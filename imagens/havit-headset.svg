@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 380" width="420" height="380">
+  <defs>
+    <linearGradient id="banda" gradientUnits="userSpaceOnUse" x1="0" y1="20" x2="0" y2="170">
+      <stop offset="0" stop-color="#4a4a4d"/>
+      <stop offset="0.18" stop-color="#232325"/>
+      <stop offset="0.6" stop-color="#101011"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+    <linearGradient id="acolchoado" gradientUnits="userSpaceOnUse" x1="0" y1="40" x2="0" y2="170">
+      <stop offset="0" stop-color="#1e1e20"/>
+      <stop offset="1" stop-color="#0a0a0a"/>
+    </linearGradient>
+    <radialGradient id="concha" cx="0.34" cy="0.26" r="0.9">
+      <stop offset="0" stop-color="#4a4a4e"/>
+      <stop offset="0.28" stop-color="#232326"/>
+      <stop offset="0.7" stop-color="#0c0c0d"/>
+      <stop offset="1" stop-color="#030303"/>
+    </radialGradient>
+    <radialGradient id="conchaLonge" cx="0.3" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#2c2c2f"/>
+      <stop offset="0.6" stop-color="#0d0d0e"/>
+      <stop offset="1" stop-color="#030303"/>
+    </radialGradient>
+    <radialGradient id="almofada" cx="0.45" cy="0.4" r="0.7">
+      <stop offset="0" stop-color="#202022"/>
+      <stop offset="0.7" stop-color="#0b0b0c"/>
+      <stop offset="1" stop-color="#040404"/>
+    </radialGradient>
+    <radialGradient id="placa" cx="0.4" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#1d1d20"/>
+      <stop offset="1" stop-color="#070707"/>
+    </radialGradient>
+    <linearGradient id="aro" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8a8a8f"/>
+      <stop offset="0.35" stop-color="#2a2a2d"/>
+      <stop offset="0.7" stop-color="#121213"/>
+      <stop offset="1" stop-color="#4a4a4e"/>
+    </linearGradient>
+    <linearGradient id="haste" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5a5a5e"/>
+      <stop offset="1" stop-color="#1a1a1b"/>
+    </linearGradient>
+    <filter id="borrar" x="-30%" y="-200%" width="160%" height="500%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <!-- sombra no chão -->
+  <ellipse cx="220" cy="352" rx="150" ry="11" fill="#000" opacity="0.7" filter="url(#borrar)"/>
+
+  <!-- concha de trás (esquerda) -->
+  <rect x="104" y="138" width="13" height="40" rx="5" fill="#141415"/>
+  <ellipse cx="112" cy="236" rx="50" ry="78" transform="rotate(-6 112 236)" fill="url(#conchaLonge)"/>
+  <ellipse cx="124" cy="238" rx="40" ry="68" transform="rotate(-6 124 238)" fill="url(#almofada)"/>
+  <ellipse cx="128" cy="240" rx="22" ry="44" transform="rotate(-6 128 240)" fill="#050505" opacity="0.85"/>
+
+  <!-- haste do microfone -->
+  <path d="M104 292 C 112 336, 168 350, 214 336" fill="none" stroke="#0b0b0c" stroke-width="9" stroke-linecap="round"/>
+  <path d="M106 290 C 114 330, 166 343, 210 331" fill="none" stroke="#4a4a4e" stroke-width="1.6" stroke-linecap="round" opacity="0.7"/>
+  <rect x="204" y="326" width="26" height="15" rx="7.5" transform="rotate(-14 217 333)" fill="#141416" stroke="#3a3a3e" stroke-width="1"/>
+
+  <!-- arco (headband) -->
+  <path d="M112 172 C 104 70, 196 24, 262 30 C 318 36, 346 92, 330 168" fill="none" stroke="url(#banda)" stroke-width="30" stroke-linecap="round"/>
+  <path d="M121 170 C 116 86, 198 46, 260 52 C 306 57, 330 102, 318 166" fill="none" stroke="url(#acolchoado)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M100 150 C 98 74, 188 14, 262 17 C 318 20, 352 70, 346 140" fill="none" stroke="#9a9a9e" stroke-width="1.6" stroke-linecap="round" opacity="0.45"/>
+  <path d="M128 160 C 124 96, 200 58, 258 63" fill="none" stroke="#2c2c2f" stroke-width="1" stroke-dasharray="3 4" opacity="0.8"/>
+
+  <!-- garfo da concha da frente -->
+  <path d="M322 150 L 336 150 L 338 196 L 322 196 Z" fill="#111112"/>
+  <rect x="324" y="150" width="3" height="44" rx="1.5" fill="#4a4a4e" opacity="0.6"/>
+
+  <!-- almofada da concha da frente -->
+  <ellipse cx="258" cy="246" rx="48" ry="90" transform="rotate(8 258 246)" fill="url(#almofada)"/>
+  <ellipse cx="252" cy="246" rx="30" ry="70" transform="rotate(8 252 246)" fill="#050505" opacity="0.6"/>
+
+  <!-- concha da frente -->
+  <ellipse cx="300" cy="248" rx="74" ry="94" transform="rotate(9 300 248)" fill="url(#concha)"/>
+  <ellipse cx="300" cy="248" rx="73" ry="93" transform="rotate(9 300 248)" fill="none" stroke="url(#aro)" stroke-width="2.2"/>
+  <ellipse cx="304" cy="250" rx="52" ry="68" transform="rotate(9 304 250)" fill="url(#placa)" stroke="#2e2e31" stroke-width="1.5"/>
+  <ellipse cx="304" cy="250" rx="52" ry="68" transform="rotate(9 304 250)" fill="none" stroke="#6a6a70" stroke-width="0.8" stroke-dasharray="40 300" stroke-dashoffset="-210" opacity="0.8"/>
+  <!-- logo H -->
+  <g transform="translate(304 252) rotate(9) skewX(-12)">
+    <path d="M-17 -24 h9 v19 h16 v-19 h9 v48 h-9 v-21 h-16 v21 h-9 z" fill="#8e8e94"/>
+    <path d="M-17 -24 h9 v19 h16 v-19 h9" fill="none" stroke="#d4d4d8" stroke-width="0.8" opacity="0.5"/>
+  </g>
+  <!-- brilho -->
+  <path d="M250 182 C 262 164, 290 156, 314 160" fill="none" stroke="#c8c8cc" stroke-width="2.4" stroke-linecap="round" opacity="0.28"/>
+</svg>

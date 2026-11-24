@@ -1,0 +1,8 @@
+# cópias de segurança locais (têm caminhos deste computador)
+versao-anterior/
+
+# gerados ao rodar ou compilar
+__pycache__/
+*.pyc
+*.so
+*.bak-*

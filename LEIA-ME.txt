@@ -1,0 +1,73 @@
+FONE HAVIT H2002D PRO — painel e conserto para Ubuntu 22.04
+=============================================================
+
+O que tem nesta pasta
+---------------------
+  consertar-fone-havit.sh   INSTALA tudo e CONSERTA o som do fone (é o único que precisa rodar)
+  havit-fone.py             o painel "Fone Havit" (volume, microfone, equalizador, "só minha voz")
+  filtros/                  código dos filtros do equalizador e do "só minha voz" (compilados na instalação)
+  imagens/                  ícones e a foto do fone usados pelo painel e pelos atalhos
+  versao-anterior/          cópias de segurança da versão antiga — NÃO precisa levar para outro computador
+
+
+Instalar em outro computador (Ubuntu 22.04)
+-------------------------------------------
+1. Copie a pasta "FONE HAVIT" para a pasta pessoal do outro computador
+   (por exemplo /home/SEU-USUARIO/FONE HAVIT). Escolha o lugar definitivo antes de instalar:
+   os atalhos apontam para onde a pasta estiver.
+   Baixou do GitHub? A pasta se chama "fone-havit-ubuntu" (ou "fone-havit-ubuntu-main" no ZIP):
+   use esse nome no comando abaixo.
+
+2. Abra o Terminal (Ctrl+Alt+T) e rode:
+
+       bash ~/"FONE HAVIT"/consertar-fone-havit.sh
+
+   (Também dá para clicar com o botão direito no arquivo consertar-fone-havit.sh e escolher
+   "Executar como programa". Se essa opção não aparecer, use o Terminal: arquivos copiados de
+   pendrive costumam perder a permissão de execução, e o comando acima funciona mesmo assim.)
+
+3. Se faltar algum pacote, ele pede a SENHA do computador e instala só o que falta, pela internet.
+   Nada que já está instalado é atualizado.
+
+4. Conecte o receptor USB e ligue o fone no modo 2.4G. Se o receptor não estava conectado durante
+   a instalação, rode de novo depois de conectar (pelo atalho "Consertar fone Havit").
+
+5. Pronto. Aparecem dois atalhos no menu de aplicativos e na Área de Trabalho:
+     Fone Havit             abre o painel
+     Consertar fone Havit   roda o conserto de novo (use se o som falhar ou um lado ficar mudo)
+   Na primeira vez, se a Área de Trabalho mostrar um atalho com aviso, clique nele com o botão
+   direito e escolha "Permitir execução".
+
+
+O que a instalação faz
+----------------------
+  * Pacotes do Ubuntu (só os que faltarem): pulseaudio, pulseaudio-utils, alsa-utils, usbutils,
+    libnotify-bin, python3, python3-gi, python3-gi-cairo, python3-cairo, python3-numpy, python3-dbus,
+    gir1.2-gtk-3.0, gir1.2-gstreamer-1.0, gir1.2-rsvg-2.0, gstreamer1.0-plugins-base,
+    gstreamer1.0-plugins-good, gcc, libc6-dev, fonts-lato.
+  * Só para o seu usuário (não precisa de senha):
+      ~/.local/bin/havit-fone e ~/.local/bin/consertar-fone-havit   (comandos)
+      ~/.local/share/applications/                                   (atalhos do menu)
+      Área de Trabalho                                               (atalhos)
+      ~/.local/lib/ladspa/havit_eq.so e havit_voz.so                 (filtros compilados)
+      ~/.local/share/pulseaudio/alsa-mixer/paths/                    (correção do mixer do receptor)
+      ~/.config/havit-fone/eq.conf                                   (ajustes do painel, criado ao usar)
+
+
+Outros comandos
+---------------
+  consertar-fone-havit --instalar   só instala/atualiza pacotes, painel e atalhos (não mexe no som)
+  consertar-fone-havit --status     mostra como estão o receptor, o mixer e as saídas
+  consertar-fone-havit --testar     testa esquerdo/direito e o microfone
+  consertar-fone-havit --desfazer   remove a correção do mixer
+  havit-fone --ajuda                opções do painel pela linha de comando
+
+
+Se mudar a pasta de lugar
+-------------------------
+Rode o consertar-fone-havit.sh de novo a partir do novo lugar: ele atualiza os atalhos.
+
+
+Não rode com sudo
+-----------------
+O som pertence à sua sessão de usuário. O script pede a senha sozinho quando precisa instalar algo.
