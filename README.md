@@ -63,7 +63,9 @@ trocar entre eles:
 O teste de microfone e o "Só minha voz" só funcionam no modo **Chamada**. O equalizador funciona nos dois. Na troca
 de modo, o painel leva junto o que estava tocando e o "Só minha voz".
 
-> O modo Bluetooth foi testado com o PulseAudio simulado. O conserto do receptor USB foi testado com o fone de verdade.
+> Testado com o fone de verdade nos dois jeitos. Pelo Bluetooth ele aparece como "H2002d Pro": no modo Música o
+> som é estéreo (SBC); no modo Chamada (HFP) a saída e o microfone ficam em 16 kHz mono, e a troca leva menos de
+> meio segundo.
 
 ## O que vem no projeto
 
